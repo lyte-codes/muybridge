@@ -56,6 +56,15 @@ def test_reset_step_and_history(env):
 
 def test_policy_obs_has_no_arm_or_linvel_terms(env):
   assert g1_joystick.FRAME_SIZE == 3 + 3 + 3 + 3 * 15
+  assert g1_joystick.frame_size(env._config) == g1_joystick.FRAME_SIZE
+
+
+def test_gait_phase_option_adds_clock_to_obs():
+  env_phase = make("G1JoystickFlat", None, {"gait_phase.enable": True})
+  assert env_phase.observation_size["state"] == (env_phase._config.history_len * (g1_joystick.FRAME_SIZE + 4),)
+  state = jax.jit(env_phase.reset)(jax.random.PRNGKey(0))
+  state = jax.jit(env_phase.step)(state, jp.zeros(15))
+  assert np.isfinite(float(state.metrics["reward/feet_phase_per_step"]))
 
 
 def test_eval_summary_pass_logic():

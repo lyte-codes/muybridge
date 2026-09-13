@@ -21,6 +21,7 @@ from mujoco import mjx
 from mujoco.mjx._src import math
 import numpy as np
 
+from mujoco_playground._src import gait
 from mujoco_playground._src import mjx_env
 
 from muybridge import model as g1_model
@@ -30,6 +31,11 @@ ENV_VERSION = "1.0.5"
 NUM_JOINTS = len(g1_model.POLICY_JOINT_NAMES)  # 15
 # gyro(3) + gravity(3) + command(3) + joint_pos(15) + joint_vel(15) + last_act(15)
 FRAME_SIZE = 3 + 3 + 3 + 3 * NUM_JOINTS
+PHASE_SIZE = 4  # cos/sin of two foot phases, only when gait_phase.enable
+
+
+def frame_size(config: config_dict.ConfigDict) -> int:
+  return FRAME_SIZE + (PHASE_SIZE if config.gait_phase.enable else 0)
 
 FEET_SITES = ("left_foot", "right_foot")
 FEET_GEOMS = ("left_foot", "right_foot")
@@ -73,6 +79,7 @@ def default_config() -> config_dict.ConfigDict:
               collision=-1.0,
               feet_air_time=5.0,
               feet_slip=-0.25,
+              feet_phase=1.0,
               termination=-100.0,
               alive=0.25,
               stand_still=-1.0,
@@ -84,6 +91,14 @@ def default_config() -> config_dict.ConfigDict:
           tracking_sigma=0.25,
           feet_air_time_min=0.1,
           feet_air_time_max=0.5,
+      ),
+      # Optional gait phase clock (upstream's gait-shaping mechanism). Off by
+      # default: it adds 4 observation dims, which changes the interface
+      # contract, so it is an ablation, not the baseline.
+      gait_phase=config_dict.create(
+          enable=False,
+          freq_range=[1.25, 1.5],
+          swing_height=0.15,
       ),
       reset_config=config_dict.create(
           xy_range=0.5,
@@ -112,9 +127,13 @@ def make_frame(
     joint_pos_delta: jax.Array,
     joint_vel: jax.Array,
     last_act: jax.Array,
+    phase: Optional[jax.Array] = None,
 ) -> jax.Array:
   """Single-timestep proprioceptive frame; shared by training and the CPU viewer."""
-  return jp.concatenate([gyro, gravity, command, joint_pos_delta, joint_vel, last_act])
+  parts = [gyro, gravity, command, joint_pos_delta, joint_vel, last_act]
+  if phase is not None:
+    parts.append(jp.concatenate([jp.cos(phase), jp.sin(phase)]))
+  return jp.concatenate(parts)
 
 
 def push_history(history: jax.Array, frame: jax.Array) -> jax.Array:
@@ -255,6 +274,12 @@ class G1Joystick(mjx_env.MjxEnv):
     rng, cmd_rng = jax.random.split(rng)
     cmd = self.sample_command(cmd_rng)
 
+    rng, freq_rng = jax.random.split(rng)
+    gait_freq = jax.random.uniform(
+        freq_rng, minval=self._config.gait_phase.freq_range[0], maxval=self._config.gait_phase.freq_range[1]
+    )
+    phase_dt = 2 * jp.pi * self.dt * gait_freq
+
     rng, push_rng = jax.random.split(rng)
     push_interval = jax.random.uniform(
         push_rng,
@@ -273,7 +298,9 @@ class G1Joystick(mjx_env.MjxEnv):
         "feet_air_time": jp.zeros(2),
         "last_contact": jp.zeros(2, dtype=bool),
         "swing_peak": jp.zeros(2),
-        "obs_history": jp.zeros((self._config.history_len, FRAME_SIZE)),
+        "obs_history": jp.zeros((self._config.history_len, frame_size(self._config))),
+        "phase": jp.array([0.0, jp.pi]),
+        "phase_dt": phase_dt,
         "push": jp.zeros(2),
         "push_step": 0,
         "push_interval_steps": push_interval_steps,
@@ -335,6 +362,8 @@ class G1Joystick(mjx_env.MjxEnv):
 
     state.info["push"] = push
     state.info["step"] += 1
+    phase_tp1 = state.info["phase"] + state.info["phase_dt"]
+    state.info["phase"] = jp.fmod(phase_tp1 + jp.pi, 2 * jp.pi) - jp.pi
     state.info["push_step"] += 1
     state.info["last_last_act"] = state.info["last_act"]
     state.info["last_act"] = action
@@ -389,7 +418,8 @@ class G1Joystick(mjx_env.MjxEnv):
       gravity = self._noisy(info, gravity, scales.gravity)
       joint_pos = self._noisy(info, joint_pos, scales.joint_pos)
       joint_vel = self._noisy(info, joint_vel, scales.joint_vel)
-    return make_frame(gyro, gravity, info["command"], joint_pos, joint_vel, info["last_act"])
+    phase = info["phase"] if self._config.gait_phase.enable else None
+    return make_frame(gyro, gravity, info["command"], joint_pos, joint_vel, info["last_act"], phase)
 
   def _get_obs(self, data: mjx.Data, info: dict, contact: jax.Array, noisy_frame: jax.Array) -> Dict[str, jax.Array]:
     del noisy_frame
@@ -431,6 +461,7 @@ class G1Joystick(mjx_env.MjxEnv):
             self._config.reward_config.feet_air_time_min, self._config.reward_config.feet_air_time_max,
         ),
         "feet_slip": self._cost_feet_slip(data, contact),
+        "feet_phase": self._reward_feet_phase(data, info["phase"], cmd) * self._config.gait_phase.enable,
         "termination": done,
         "alive": jp.array(1.0),
         "stand_still": self._cost_stand_still(cmd, qpos),
@@ -479,6 +510,16 @@ class G1Joystick(mjx_env.MjxEnv):
   def _cost_feet_slip(self, data, contact):
     feet_vel_xy = data.sensordata[self._foot_linvel_sensor_adr][:, :2]
     return jp.sum(jp.linalg.norm(feet_vel_xy, axis=-1) * contact)
+
+  def _reward_feet_phase(self, data, phase, cmd):
+    """Upstream gait shaping: foot height tracks a Bezier swing profile driven by the clock."""
+    foot_z = data.site_xpos[self._feet_site_id][..., -1]
+    rz = gait.get_rz(phase, swing_height=self._config.gait_phase.swing_height)
+    reward = jp.exp(-jp.sum(jp.square(foot_z - rz)) / 0.01)
+    body_linvel = self.get_global_linvel(data, "pelvis")[:2]
+    body_angvel = self.get_global_angvel(data, "pelvis")[2]
+    moving = jp.logical_or(jp.linalg.norm(body_linvel) > 0.1, jp.abs(body_angvel) > 0.1)
+    return reward * jp.logical_or(moving, jp.linalg.norm(cmd) > 0.01)
 
   def _cost_stand_still(self, cmd, qpos):
     cost = jp.sum(jp.abs(qpos - self._default_pose))

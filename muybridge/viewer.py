@@ -58,6 +58,8 @@ class Sim:
     self.noise_scales = env._config.noise_config.scales
     self.noise_level = noise_level
     self.rng = np.random.default_rng(0)
+    self.phase_enabled = bool(env._config.gait_phase.enable)
+    self.phase_dt = 2 * np.pi * self.dt * float(np.mean(env._config.gait_phase.freq_range))
     self.pelvis_imu = self.m.site("imu_in_pelvis").id
     self.torso_body = self.m.body(g1_joystick.TORSO_BODY).id
     self.foot_geoms = [self.m.geom(n).id for n in g1_joystick.FEET_GEOMS]
@@ -82,6 +84,7 @@ class Sim:
     self.step_count = 0
     self.air_time = np.zeros(2)
     self.fallen = False
+    self.phase = np.array([0.0, np.pi])
     self.history = np.tile(self.frame()[None], (self.history_len, 1))
 
   def noisy(self, x: np.ndarray, scale: float) -> np.ndarray:
@@ -92,7 +95,8 @@ class Sim:
     gravity = self.noisy(self.d.site_xmat[self.pelvis_imu].reshape(3, 3).T @ np.array([0, 0, -1.0]), self.noise_scales.gravity)
     jpos = self.noisy(self.d.qpos[7:] - self.default_pose, self.noise_scales.joint_pos)
     jvel = self.noisy(self.d.qvel[6:].copy(), self.noise_scales.joint_vel)
-    return np.asarray(g1_joystick.make_frame(gyro, gravity, self.command, jpos, jvel, self.last_act))
+    phase = self.phase if self.phase_enabled else None
+    return np.asarray(g1_joystick.make_frame(gyro, gravity, self.command, jpos, jvel, self.last_act, phase))
 
   def obs(self, obs_sizes: Dict[str, int]) -> Dict[str, np.ndarray]:
     out = {"state": self.history.ravel().astype(np.float32)}
@@ -107,6 +111,7 @@ class Sim:
     for _ in range(self.n_substeps):
       mujoco.mj_step(self.m, self.d)
     self.last_act = action
+    self.phase = np.fmod(self.phase + self.phase_dt + np.pi, 2 * np.pi) - np.pi
     self.history = np.asarray(g1_joystick.push_history(self.history, self.frame()))
     self.step_count += 1
     contact = self.foot_contacts()
