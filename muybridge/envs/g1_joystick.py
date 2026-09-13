@@ -25,7 +25,7 @@ from mujoco_playground._src import mjx_env
 
 from muybridge import model as g1_model
 
-ENV_VERSION = "1.0.0"
+ENV_VERSION = "1.0.1"
 
 NUM_JOINTS = len(g1_model.POLICY_JOINT_NAMES)  # 15
 # gyro(3) + gravity(3) + command(3) + joint_pos(15) + joint_vel(15) + last_act(15)
@@ -67,13 +67,14 @@ def default_config() -> config_dict.ConfigDict:
               ang_vel_xy=-0.15,
               orientation=-2.0,
               torques=-1e-4,
-              action_rate=-0.05,
+              action_rate=-0.01,
               dof_acc=-1e-7,
               dof_pos_limits=-1.0,
               collision=-0.1,
               feet_air_time=2.0,
               feet_slip=-0.25,
               termination=-100.0,
+              alive=1.0,
               stand_still=-1.0,
               waist_deviation=-0.2,
               joint_deviation_hip=-0.25,
@@ -413,6 +414,7 @@ class G1Joystick(mjx_env.MjxEnv):
         "feet_air_time": self._reward_feet_air_time(info["feet_air_time"], first_contact),
         "feet_slip": self._cost_feet_slip(data, contact),
         "termination": done,
+        "alive": jp.array(1.0),
         "stand_still": self._cost_stand_still(cmd, qpos),
         "waist_deviation": self._cost_waist_deviation(qpos),
         "joint_deviation_hip": self._cost_joint_deviation_hip(qpos, cmd),
