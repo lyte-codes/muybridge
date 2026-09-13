@@ -1,0 +1,7 @@
+playground==0.2.0
+mujoco==3.13.0
+mujoco-mjx==3.13.0
+jax==0.10.2
+brax==0.14.2
+viser==1.1.0
+tensorboard>=2.21
