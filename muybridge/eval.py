@@ -73,7 +73,7 @@ def rollout(env, policy, commands: np.ndarray, seeds: np.ndarray, episode_length
         "alive": alive,
         "done": nstate.done,
         "fall": nstate.metrics["term/fall"],
-        "self_collision": nstate.metrics["term/self_collision"],
+        "self_collision": nstate.metrics["gait/self_collision_per_step"],
         "lin_err": jp.linalg.norm(cmd[:, :2] - linvel[:, :2], axis=-1),
         "ang_err": jp.abs(cmd[:, 2] - gyro[:, 2]),
         "power": jp.sum(jp.abs(data.actuator_force * data.qvel[:, 6:]), axis=-1),
@@ -117,7 +117,7 @@ def summarize(recs: Dict[str, np.ndarray], commands: np.ndarray, seeds: np.ndarr
   moving = np.linalg.norm(commands[:, :2], axis=-1) > 0.1
   cot = np.where(moving & (dist > 0.05), energy / (recs["mass"] * 9.81 * np.maximum(dist, 1e-6)), np.nan)
   fell = ((recs["fall"] * alive).sum(0) > 0)
-  collided = ((recs["self_collision"] * alive).sum(0) > 0)
+  collided = ((recs["self_collision"] * alive).sum(0) > 0)  # any self-contact during the episode (non-terminal)
   ttf = steps_alive * dt
 
   per_command: List[Dict[str, Any]] = []
