@@ -25,7 +25,7 @@ from mujoco_playground._src import mjx_env
 
 from muybridge import model as g1_model
 
-ENV_VERSION = "1.0.4"
+ENV_VERSION = "1.0.5"
 
 NUM_JOINTS = len(g1_model.POLICY_JOINT_NAMES)  # 15
 # gyro(3) + gravity(3) + command(3) + joint_pos(15) + joint_vel(15) + last_act(15)
@@ -71,17 +71,17 @@ def default_config() -> config_dict.ConfigDict:
               dof_acc=-1e-7,
               dof_pos_limits=-1.0,
               collision=-1.0,
-              feet_air_time=2.0,
+              feet_air_time=5.0,
               feet_slip=-0.25,
               termination=-100.0,
-              alive=0.5,
+              alive=0.25,
               stand_still=-1.0,
               waist_deviation=-0.2,
               joint_deviation_hip=-0.25,
               joint_deviation_knee=-0.1,
               pose=-0.1,
           ),
-          tracking_sigma=0.5,
+          tracking_sigma=0.25,
           feet_air_time_min=0.1,
           feet_air_time_max=0.5,
       ),
@@ -427,7 +427,7 @@ class G1Joystick(mjx_env.MjxEnv):
         "dof_pos_limits": self._cost_joint_pos_limits(qpos),
         "collision": self._self_collision(data).astype(jp.float32),
         "feet_air_time": self._reward_feet_air_time(
-            info["feet_air_time"], first_contact,
+            info["feet_air_time"], first_contact, cmd,
             self._config.reward_config.feet_air_time_min, self._config.reward_config.feet_air_time_max,
         ),
         "feet_slip": self._cost_feet_slip(data, contact),
@@ -471,13 +471,14 @@ class G1Joystick(mjx_env.MjxEnv):
     out += jp.clip(qpos - self._soft_uppers, 0.0, None)
     return jp.sum(out)
 
-  def _reward_feet_air_time(self, air_time, first_contact, threshold_min, threshold_max):
+  def _reward_feet_air_time(self, air_time, first_contact, cmd, threshold_min, threshold_max):
     air_time = (air_time - threshold_min) * first_contact
-    return jp.sum(jp.clip(air_time, max=threshold_max - threshold_min))
+    reward = jp.sum(jp.clip(air_time, max=threshold_max - threshold_min))
+    return reward * (jp.linalg.norm(cmd) > 0.1)
 
   def _cost_feet_slip(self, data, contact):
-    body_vel = self.get_global_linvel(data, "pelvis")[:2]
-    return jp.sum(jp.linalg.norm(body_vel) * contact)
+    feet_vel_xy = data.sensordata[self._foot_linvel_sensor_adr][:, :2]
+    return jp.sum(jp.linalg.norm(feet_vel_xy, axis=-1) * contact)
 
   def _cost_stand_still(self, cmd, qpos):
     cost = jp.sum(jp.abs(qpos - self._default_pose))
