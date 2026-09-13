@@ -30,3 +30,20 @@ into the package's `external_deps` directory. MJX runs on the JAX backend
 ```bash
 python -m muybridge.bench --num-envs 64 256 512 --full-arms --out reports/stage0_throughput.json
 ```
+
+## Stage 1
+
+```bash
+# train (TensorBoard scalars in runs/<run>/tb, checkpoints every 50 iterations)
+python -m muybridge.train --run runs/stage1_a --num-envs 512 --num-timesteps 50_000_000
+tensorboard --logdir runs
+
+# fixed eval harness on the latest checkpoint (held-out seeds, 45-command grid, 20 s episodes)
+python -m muybridge.eval --run runs/stage1_a --seeds 3
+
+# browser 3D viewer with checkpoint hot-reload, manual velocity commands and overlays
+python -m muybridge.viewer --run runs/stage1_a --port 8080
+```
+
+`docs/upstream_diff.md` lists every deliberate difference from the upstream
+MuJoCo Playground G1 joystick task. Tests: `pytest tests`.
