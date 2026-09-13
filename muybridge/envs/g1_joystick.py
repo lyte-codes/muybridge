@@ -46,6 +46,7 @@ def default_config() -> config_dict.ConfigDict:
       action_scale=0.5,
       history_len=10,
       soft_joint_pos_limit_factor=0.95,
+      min_base_height=0.35,
       impl="jax",
       naconmax=None,
       njmax=None,
@@ -347,6 +348,9 @@ class G1Joystick(mjx_env.MjxEnv):
 
   def _termination_causes(self, data: mjx.Data):
     fall = self.get_gravity(data, "torso")[-1] < 0.0
+    # Only the feet collide with the floor, so a robot that drops onto its
+    # knees sinks through the ground while its torso can still read "upright".
+    fall |= data.qpos[2] < self._config.min_base_height
     fall |= jp.isnan(data.qpos).any() | jp.isnan(data.qvel).any()
     self_collision = jp.any(data.sensordata[self._self_collision_adr] > 0)
     return fall, self_collision

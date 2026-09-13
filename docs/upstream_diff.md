@@ -12,7 +12,7 @@ Upstream reference: `mujoco_playground._src.locomotion.g1.joystick` and
 | Critic observation | privileged state | privileged state incl. history, clean frame, linvel, angvel, accel, height, torques, contacts, foot vel, air time | Asymmetric actor-critic kept; the policy never sees it. |
 | Action | 29 joint targets, `default + 0.5 * a` | 15 joint targets, same mapping | Interface contract. |
 | Reward set | includes `feet_phase`, `feet_clearance`, `feet_height`, `contact_force`, `base_height`, `energy`, `alive` | those removed; **added** `waist_deviation`; nonzero weights on `lin_vel_z`, `torques`, `action_rate`, `dof_acc` (upstream 0) | Spec reward set + waist penalty. Phase-based feet rewards need the phase clock. |
-| Termination | torso upvector z < 0, foot-foot / foot-shin contact, NaN | same, but split into `term/fall` and `term/self_collision` metrics | Termination-cause breakdown for the dashboard. |
+| Termination | torso upvector z < 0, foot-foot / foot-shin contact, NaN | same plus pelvis height < 0.35 m; split into `term/fall` and `term/self_collision` metrics | Only feet collide with the floor, so a kneeling robot sinks through the ground while still reading "upright". Termination-cause breakdown for the dashboard. |
 | Metrics | `reward/<term>` sum per episode | `reward/<term>_per_step` (Brax normalises by length), `track/lin_vel_err`, `track/ang_vel_err`, `term/*`, `gait/swing_peak` | Per-term and tracking-error logging. |
 | Push perturbation | enabled, 0.1–2.0 m/s every 5–10 s | present but `enable=False` for Stage 1 | Stage 1: no randomization beyond observation noise. |
 | Command sampling | per-axis draws, 10 % zero, resample every 500 steps | same, ranges in config | unchanged |

@@ -12,6 +12,7 @@ and any applied torso wrench.
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import os
 import threading
@@ -288,16 +289,39 @@ class Viewer:
     self.policy_lock = threading.Lock()
     self.server = viser.ViserServer(port=port, label="muybridge viewer")
     self.server.scene.set_up_direction("+z")
+    self.server.initial_camera.position = tuple(self.sim.torso_pos() + np.array([2.2, -2.2, 1.0]))
+    self.server.initial_camera.look_at = tuple(self.sim.torso_pos())
     self.playing = True
     self.step_request = False
     self.reset_request = False
     self.fall_time: Optional[float] = None
-    self.client_targets: Dict[int, np.ndarray] = {}
+    self.client_offsets: Dict[int, np.ndarray] = {}
+    self.commanded_positions: Dict[int, collections.deque] = {}
+    self.commanded_targets: Dict[int, collections.deque] = {}
+    self.camera_offset0 = np.array([2.2, -2.2, 1.0])
     self.auto_ckpt = True
     self._build_scene()
     self._build_gui()
     self._load_latest()
+    self.server.on_client_connect(self._on_client_connect)
     threading.Thread(target=self._poll_checkpoints, daemon=True).start()
+
+  def _on_client_connect(self, client: viser.ClientHandle) -> None:
+    cid = client.client_id
+    self.client_offsets[cid] = self.camera_offset0.copy()
+    self.commanded_positions[cid] = collections.deque(maxlen=30)
+    self.commanded_targets[cid] = collections.deque(maxlen=30)
+
+    @client.camera.on_update
+    def _(cam: viser.CameraHandle) -> None:
+      # User orbit/zoom keeps look_at on a target we commanded but moves the
+      # position away from anything we commanded; everything else is an echo.
+      pos, look_at = np.asarray(cam.position), np.asarray(cam.look_at)
+      if not any(np.linalg.norm(look_at - t) < 1e-3 for t in self.commanded_targets[cid]):
+        return
+      if any(np.linalg.norm(pos - c) < 1e-4 for c in self.commanded_positions[cid]):
+        return
+      self.client_offsets[cid] = pos - look_at
 
   # Scene.
 
@@ -494,14 +518,13 @@ class Viewer:
   def _follow_cameras(self) -> None:
     target = self.sim.torso_pos()
     for client in self.server.get_clients().values():
-      prev = self.client_targets.get(client.client_id)
-      if prev is None or not self.follow.value:
-        self.client_targets[client.client_id] = target
-        continue
-      offset = np.asarray(client.camera.position) - prev
-      client.camera.position = target + offset
+      cid = client.client_id
+      offset = self.client_offsets.get(cid, self.camera_offset0)
+      pos = target + offset
+      self.commanded_positions.setdefault(cid, collections.deque(maxlen=30)).append(pos)
+      self.commanded_targets.setdefault(cid, collections.deque(maxlen=30)).append(target)
+      client.camera.position = pos
       client.camera.look_at = target
-      self.client_targets[client.client_id] = target
 
   # Main loop.
 
