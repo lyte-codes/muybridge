@@ -25,7 +25,7 @@ from mujoco_playground._src import mjx_env
 
 from muybridge import model as g1_model
 
-ENV_VERSION = "1.0.3"
+ENV_VERSION = "1.0.4"
 
 NUM_JOINTS = len(g1_model.POLICY_JOINT_NAMES)  # 15
 # gyro(3) + gravity(3) + command(3) + joint_pos(15) + joint_vel(15) + last_act(15)
@@ -61,8 +61,8 @@ def default_config() -> config_dict.ConfigDict:
       ),
       reward_config=config_dict.create(
           scales=config_dict.create(
-              tracking_lin_vel=1.0,
-              tracking_ang_vel=0.75,
+              tracking_lin_vel=1.5,
+              tracking_ang_vel=1.0,
               lin_vel_z=-0.5,
               ang_vel_xy=-0.15,
               orientation=-2.0,
@@ -74,14 +74,16 @@ def default_config() -> config_dict.ConfigDict:
               feet_air_time=2.0,
               feet_slip=-0.25,
               termination=-100.0,
-              alive=1.0,
+              alive=0.5,
               stand_still=-1.0,
               waist_deviation=-0.2,
               joint_deviation_hip=-0.25,
               joint_deviation_knee=-0.1,
               pose=-0.1,
           ),
-          tracking_sigma=0.25,
+          tracking_sigma=0.5,
+          feet_air_time_min=0.1,
+          feet_air_time_max=0.5,
       ),
       reset_config=config_dict.create(
           xy_range=0.5,
@@ -424,7 +426,10 @@ class G1Joystick(mjx_env.MjxEnv):
         "dof_acc": self._cost_dof_acc(data.qacc[6:]),
         "dof_pos_limits": self._cost_joint_pos_limits(qpos),
         "collision": self._self_collision(data).astype(jp.float32),
-        "feet_air_time": self._reward_feet_air_time(info["feet_air_time"], first_contact),
+        "feet_air_time": self._reward_feet_air_time(
+            info["feet_air_time"], first_contact,
+            self._config.reward_config.feet_air_time_min, self._config.reward_config.feet_air_time_max,
+        ),
         "feet_slip": self._cost_feet_slip(data, contact),
         "termination": done,
         "alive": jp.array(1.0),
@@ -466,7 +471,7 @@ class G1Joystick(mjx_env.MjxEnv):
     out += jp.clip(qpos - self._soft_uppers, 0.0, None)
     return jp.sum(out)
 
-  def _reward_feet_air_time(self, air_time, first_contact, threshold_min=0.2, threshold_max=0.5):
+  def _reward_feet_air_time(self, air_time, first_contact, threshold_min, threshold_max):
     air_time = (air_time - threshold_min) * first_contact
     return jp.sum(jp.clip(air_time, max=threshold_max - threshold_min))
 
