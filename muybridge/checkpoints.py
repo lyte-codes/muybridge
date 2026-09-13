@@ -62,6 +62,7 @@ def observation_sizes(path: str) -> Dict[str, int]:
 
 
 def load_policy(path: str, deterministic: bool = True):
+  path = os.path.abspath(path)
   config = load_config(path)
   params = ppo_checkpoint.load(path)
   network = brax_checkpoint.get_network(config, ppo_networks.make_ppo_networks)
