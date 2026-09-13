@@ -25,7 +25,7 @@ from mujoco_playground._src import mjx_env
 
 from muybridge import model as g1_model
 
-ENV_VERSION = "1.0.2"
+ENV_VERSION = "1.0.3"
 
 NUM_JOINTS = len(g1_model.POLICY_JOINT_NAMES)  # 15
 # gyro(3) + gravity(3) + command(3) + joint_pos(15) + joint_vel(15) + last_act(15)
@@ -70,7 +70,7 @@ def default_config() -> config_dict.ConfigDict:
               action_rate=-0.01,
               dof_acc=-1e-7,
               dof_pos_limits=-1.0,
-              collision=-0.1,
+              collision=-1.0,
               feet_air_time=2.0,
               feet_slip=-0.25,
               termination=-100.0,
@@ -283,7 +283,7 @@ class G1Joystick(mjx_env.MjxEnv):
     metrics["track/lin_vel_err_per_step"] = jp.zeros(())
     metrics["track/ang_vel_err_per_step"] = jp.zeros(())
     metrics["term/fall"] = jp.zeros(())
-    metrics["term/self_collision"] = jp.zeros(())
+    metrics["gait/self_collision_per_step"] = jp.zeros(())
     metrics["gait/swing_peak_per_step"] = jp.zeros(())
 
     contact = self.feet_contact(data)
@@ -323,8 +323,9 @@ class G1Joystick(mjx_env.MjxEnv):
     state.info["obs_history"] = push_history(state.info["obs_history"], frame)
     obs = self._get_obs(data, state.info, contact, frame)
 
-    fall, self_collision = self._termination_causes(data)
-    done = fall | self_collision
+    fall = self._fall(data)
+    self_collision = self._self_collision(data)
+    done = fall
 
     rewards = self._get_reward(data, action, state.info, done, first_contact, contact)
     rewards = {k: v * self._config.reward_config.scales[k] for k, v in rewards.items()}
@@ -349,20 +350,24 @@ class G1Joystick(mjx_env.MjxEnv):
     state.metrics["track/lin_vel_err_per_step"] = jp.linalg.norm(state.info["command"][:2] - local_linvel[:2])
     state.metrics["track/ang_vel_err_per_step"] = jp.abs(state.info["command"][2] - self.get_gyro(data)[2])
     state.metrics["term/fall"] = fall.astype(jp.float32)
-    state.metrics["term/self_collision"] = self_collision.astype(jp.float32)
+    state.metrics["gait/self_collision_per_step"] = self_collision.astype(jp.float32)
     state.metrics["gait/swing_peak_per_step"] = jp.mean(state.info["swing_peak"])
 
     done = done.astype(reward.dtype)
     return state.replace(data=data, obs=obs, reward=reward, done=done)
 
-  def _termination_causes(self, data: mjx.Data):
+  def _fall(self, data: mjx.Data) -> jax.Array:
     fall = self.get_gravity(data, "torso")[-1] < 0.0
     # Only the feet collide with the floor, so a robot that drops onto its
     # knees sinks through the ground while its torso can still read "upright".
     fall |= data.qpos[2] < self._config.min_base_height
     fall |= jp.isnan(data.qpos).any() | jp.isnan(data.qvel).any()
-    self_collision = jp.any(data.sensordata[self._self_collision_adr] > 0)
-    return fall, self_collision
+    return fall
+
+  def _self_collision(self, data: mjx.Data) -> jax.Array:
+    """Foot-foot, foot-shin and hand-thigh contacts: penalised, not terminal."""
+    found = jp.concatenate([data.sensordata[self._self_collision_adr], data.sensordata[self._hand_thigh_adr]])
+    return jp.any(found > 0)
 
   # Observations.
 
@@ -418,7 +423,7 @@ class G1Joystick(mjx_env.MjxEnv):
         "action_rate": self._cost_action_rate(action, info["last_act"]),
         "dof_acc": self._cost_dof_acc(data.qacc[6:]),
         "dof_pos_limits": self._cost_joint_pos_limits(qpos),
-        "collision": self._cost_collision(data),
+        "collision": self._self_collision(data).astype(jp.float32),
         "feet_air_time": self._reward_feet_air_time(info["feet_air_time"], first_contact),
         "feet_slip": self._cost_feet_slip(data, contact),
         "termination": done,
@@ -460,9 +465,6 @@ class G1Joystick(mjx_env.MjxEnv):
     out = -jp.clip(qpos - self._soft_lowers, None, 0.0)
     out += jp.clip(qpos - self._soft_uppers, 0.0, None)
     return jp.sum(out)
-
-  def _cost_collision(self, data):
-    return jp.any(data.sensordata[self._hand_thigh_adr] > 0).astype(jp.float32)
 
   def _reward_feet_air_time(self, air_time, first_contact, threshold_min=0.2, threshold_max=0.5):
     air_time = (air_time - threshold_min) * first_contact
