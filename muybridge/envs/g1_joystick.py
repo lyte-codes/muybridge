@@ -25,7 +25,7 @@ from mujoco_playground._src import mjx_env
 
 from muybridge import model as g1_model
 
-ENV_VERSION = "1.0.1"
+ENV_VERSION = "1.0.2"
 
 NUM_JOINTS = len(g1_model.POLICY_JOINT_NAMES)  # 15
 # gyro(3) + gravity(3) + command(3) + joint_pos(15) + joint_vel(15) + last_act(15)
@@ -82,6 +82,11 @@ def default_config() -> config_dict.ConfigDict:
               pose=-0.1,
           ),
           tracking_sigma=0.25,
+      ),
+      reset_config=config_dict.create(
+          xy_range=0.5,
+          joint_scale_range=[0.8, 1.2],
+          base_vel_range=0.2,
       ),
       push_config=config_dict.create(
           enable=False,
@@ -218,8 +223,9 @@ class G1Joystick(mjx_env.MjxEnv):
     qpos = self._init_q
     qvel = jp.zeros(self.mjx_model.nv)
 
+    rc = self._config.reset_config
     rng, key = jax.random.split(rng)
-    dxy = jax.random.uniform(key, (2,), minval=-0.5, maxval=0.5)
+    dxy = jax.random.uniform(key, (2,), minval=-rc.xy_range, maxval=rc.xy_range)
     qpos = qpos.at[0:2].set(qpos[0:2] + dxy)
     rng, key = jax.random.split(rng)
     yaw = jax.random.uniform(key, (1,), minval=-3.14, maxval=3.14)
@@ -227,9 +233,11 @@ class G1Joystick(mjx_env.MjxEnv):
     qpos = qpos.at[3:7].set(math.quat_mul(qpos[3:7], quat))
 
     rng, key = jax.random.split(rng)
-    qpos = qpos.at[7:].set(qpos[7:] * jax.random.uniform(key, (NUM_JOINTS,), minval=0.5, maxval=1.5))
+    qpos = qpos.at[7:].set(
+        qpos[7:] * jax.random.uniform(key, (NUM_JOINTS,), minval=rc.joint_scale_range[0], maxval=rc.joint_scale_range[1])
+    )
     rng, key = jax.random.split(rng)
-    qvel = qvel.at[0:6].set(jax.random.uniform(key, (6,), minval=-0.5, maxval=0.5))
+    qvel = qvel.at[0:6].set(jax.random.uniform(key, (6,), minval=-rc.base_vel_range, maxval=rc.base_vel_range))
 
     data = mjx_env.make_data(
         self.mj_model,

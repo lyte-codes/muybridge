@@ -15,6 +15,7 @@ Upstream reference: `mujoco_playground._src.locomotion.g1.joystick` and
 | Termination | torso upvector z < 0, foot-foot / foot-shin contact, NaN | same plus pelvis height < 0.35 m; split into `term/fall` and `term/self_collision` metrics | Only feet collide with the floor, so a kneeling robot sinks through the ground while still reading "upright". Termination-cause breakdown for the dashboard. |
 | Metrics | `reward/<term>` sum per episode | `reward/<term>_per_step` (Brax normalises by length), `track/lin_vel_err`, `track/ang_vel_err`, `term/*`, `gait/swing_peak` | Per-term and tracking-error logging. |
 | Push perturbation | enabled, 0.1–2.0 m/s every 5–10 s | present but `enable=False` for Stage 1 | Stage 1: no randomization beyond observation noise. |
+| Reset randomization | xy ±0.5 m, yaw uniform, joint angles × U(0.5, 1.5), base velocity ±0.5 | same shape, ranges in `reset_config`: joint angles × U(0.8, 1.2), base velocity ±0.2 (env 1.0.2) | Upstream's ranges start most episodes half-fallen; at 30x fewer samples the policy never got past the first second. Widened again when robustness stages need it. |
 | Command sampling | per-axis draws, 10 % zero, resample every 500 steps | same, ranges in config | unchanged |
 | Config | `restricted_joint_range` option | removed | Only relevant with arms. |
 | PPO loss | Brax `compute_ppo_loss` | fork in `muybridge/ppo_losses.py` adding `clip_fraction`, `explained_variance`, `entropy` | Dashboard PPO diagnostics. |
