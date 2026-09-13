@@ -1,6 +1,6 @@
 # Stage 1 — Flat-ground velocity tracking
 
-Status: **in progress, PR #2 draft**. Pass criteria not yet met; see "Where it
+Status: **PR #2 draft, run g complete (20.4M samples)**. Pass criteria not yet met; see "Where it
 stands" below. Everything here was produced on a 4-core CPU sandbox at
 roughly 700–900 env steps/s (512 envs), i.e. about 3 % of the sample budget
 the upstream G1 task uses. Numbers should be re-established on a GPU.
@@ -65,6 +65,30 @@ Cumulative samples across the warm-start chain c→d→e→f→g are ~19M + the 
 | 6,266,880 | 84.4 % | 21 | 0.226 | 1.856 | 0.308 | 1.591 | 8.7 | 0.191 | no |
 | 6,789,120 | 85.9 % | 19 | 0.193 | 1.358 | 0.300 | 1.999 | 8.9 | 0.189 | no |
 | 7,311,360 | 85.9 % | 19 | 0.204 | 2.031 | 0.314 | 2.576 | 10.2 | 0.185 | no |
+| 7,833,600 | 86.7 % | 18 | 0.198 | 1.277 | 0.326 | 3.405 | 11.4 | 0.187 | no |
+| 8,355,840 | 88.1 % | 16 | 0.196 | 2.055 | 0.287 | 1.482 | 11.7 | 0.190 | no |
+| 8,878,080 | 88.9 % | 15 | 0.213 | 1.551 | 0.308 | 1.865 | 10.9 | 0.191 | no |
+| 9,400,320 | 91.9 % | 11 | 0.177 | 0.507 | 0.269 | 0.825 | 11.0 | 0.186 | no |
+| 9,922,560 | 87.4 % | 17 | 0.181 | 0.677 | 0.283 | 1.211 | 14.3 | 0.189 | no |
+| 10,444,800 | 89.6 % | 14 | 0.178 | 1.024 | 0.268 | 1.585 | 12.1 | 0.190 | no |
+| 10,967,040 | 91.9 % | 11 | 0.188 | 2.001 | 0.278 | 1.597 | 11.8 | 0.191 | no |
+| 11,489,280 | 89.6 % | 14 | 0.184 | 1.529 | 0.275 | 1.755 | 11.0 | 0.191 | no |
+| 12,533,760 | 85.9 % | 19 | 0.182 | 1.185 | 0.280 | 2.384 | 11.3 | 0.190 | no |
+| 13,056,000 | 83.7 % | 22 | 0.185 | 1.255 | 0.297 | 2.645 | 12.1 | 0.190 | no |
+| 14,100,480 | 94.1 % | 8 | 0.162 | 0.468 | 0.239 | 0.789 | 14.3 | 0.187 | no |
+| 14,622,720 | 94.8 % | 7 | 0.156 | 0.405 | 0.236 | 0.711 | 10.7 | 0.188 | no |
+| 15,144,960 | 94.1 % | 8 | 0.159 | 0.559 | 0.240 | 0.841 | 16.0 | 0.187 | no |
+| 15,667,200 | 90.4 % | 13 | 0.171 | 1.487 | 0.250 | 1.310 | 14.0 | 0.188 | no |
+| 16,189,440 | 89.6 % | 14 | 0.173 | 0.891 | 0.257 | 1.496 | 10.7 | 0.189 | no |
+| 16,711,680 | 91.1 % | 12 | 0.196 | 1.991 | 0.284 | 4.615 | 14.3 | 0.188 | no |
+| 17,233,920 | 90.4 % | 13 | 0.189 | 1.220 | 0.263 | 1.800 | 14.2 | 0.188 | no |
+| 17,756,160 | 92.6 % | 10 | 0.167 | 0.424 | 0.216 | 0.884 | 12.8 | 0.187 | no |
+| 18,278,400 | 91.9 % | 11 | 0.192 | 1.750 | 0.261 | 2.457 | 11.5 | 0.185 | no |
+| 18,800,640 | 90.4 % | 13 | 0.178 | 2.258 | 0.262 | 3.175 | 13.8 | 0.188 | no |
+| 19,322,880 | 89.6 % | 14 | 0.184 | 1.562 | 0.254 | 1.762 | 11.5 | 0.186 | no |
+| 19,845,120 | 93.3 % | 9 | 0.185 | 2.270 | 0.269 | 4.582 | 11.8 | 0.186 | no |
+| 19,845,120 | 93.3 % | 9 | 0.185 | 2.270 | 0.269 | 4.582 | 11.8 | 0.186 | no |
+| 20,367,360 | 90.4 % | 13 | 0.163 | 0.812 | 0.223 | 1.151 | 12.6 | 0.184 | no |
 
 Breakdown of the 1,044,480 checkpoint by command type (mean lin / ang error):
 zero command 0.04 / 0.09, forward-only 0.11 / 0.22, lateral-only 0.18 / 0.27,
@@ -81,8 +105,9 @@ the worst grid points are the (vx, vy, wz) corners with all three non-zero.
   100 episodes). The gap is largest on yaw and on combined commands.
 - Later checkpoints of run g regress on completion (84–88 %) while the
   training reward keeps rising, which is exactly the training-curve vs.
-  harness disagreement the spec warns about. Best checkpoint by harness:
-  `runs/stage1_cpu_g/checkpoints/000001044480`.
+  harness disagreement the spec warns about. Best completion by harness:
+  `runs/stage1_cpu_g/checkpoints/000001044480` (97.8 %); best tracking:
+  the final checkpoint `000020367360` (0.163 m/s / 0.223 rad/s, 90.4 %).
 - Training-time fall rate at command re-sampling (every 10 s) is still
   ~20 %, so transitions between commands are where the falls come from.
 
